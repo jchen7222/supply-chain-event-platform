@@ -1,0 +1,27 @@
+version: 2
+models:
+  - name: stg_events
+    description: "Typed passthrough of the append-only envelope (EPCIS-modeled)."
+    columns:
+      - name: seq
+        tests: [unique, not_null]
+      - name: entity_id
+        tests: [not_null]
+      - name: record_time
+        tests: [not_null]
+      - name: source
+        tests:
+          - not_null
+          - accepted_values:
+              values: [alfred, openfda, imf_imts, gscpi, pharma_synthetic]
+  - name: current_state
+    columns:
+      - name: entity_id
+        tests: [unique, not_null]
+  - name: history
+    columns:
+      - name: entity_id
+        tests: [not_null]
+seeds:
+  - name: registry
+    description: "The source registry — one row per source; the dbt seed mirror of ingest/registry.py."

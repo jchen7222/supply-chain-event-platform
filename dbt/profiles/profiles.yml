@@ -1,0 +1,16 @@
+manifest:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('MANIFEST_DB', '../data/manifest.duckdb') }}"
+      threads: 1
+    snowflake:                     # portability target — set the env vars, then: dbt build -t snowflake
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', '') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', '') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD', '') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'MANIFEST') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'COMPUTE_WH') }}"
+      schema: main
+      threads: 1

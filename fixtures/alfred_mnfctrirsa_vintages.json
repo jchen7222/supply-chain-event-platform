@@ -1,0 +1,11 @@
+{
+  "_label": "FIXTURE — shaped per the FRED/ALFRED docs for output_type=2 (observations by vintage date). NOT real archive data; the live fetch (FRED_API_KEY) returns this same shape and flows through the same parser, replay, and CI assertion.",
+  "observations": [
+    {"date": "2025-09-01", "MNFCTRIRSA_20251114": "1.46", "MNFCTRIRSA_20251215": "1.46", "MNFCTRIRSA_20260116": "1.46"},
+    {"date": "2025-10-01", "MNFCTRIRSA_20251114": "1.47", "MNFCTRIRSA_20251215": "1.48", "MNFCTRIRSA_20260116": "1.48"},
+    {"date": "2025-11-01", "MNFCTRIRSA_20251215": "1.49", "MNFCTRIRSA_20260116": "1.47"},
+    {"date": "2025-12-01", "MNFCTRIRSA_20260116": "1.50"},
+    {"date": "2025-08-01", "MNFCTRIRSA_20251114": "1.45", "MNFCTRIRSA_20251215": "1.45", "MNFCTRIRSA_20260116": "1.45"},
+    {"date": "2025-07-01", "MNFCTRIRSA_20251114": "1.44", "MNFCTRIRSA_20251215": "1.44", "MNFCTRIRSA_20260116": "1.44"}
+  ]
+}

@@ -1,0 +1,14 @@
+name: manifest
+version: "0.1.0"
+profile: manifest
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+models:
+  manifest:
+    +materialized: view
+    folds:
+      +materialized: table
+    marts:
+      +materialized: table

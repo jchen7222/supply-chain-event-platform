@@ -1,0 +1,31 @@
+name: ingest
+on:
+  schedule:
+    - cron: "17 6 * * *"      # daily 06:17 UTC — the visible schedule IS the credibility
+  workflow_dispatch: {}
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements.txt
+      - name: live snapshots (FDA daily; IMF + GSCPI cheap enough to ride along)
+        run: |
+          python -m ingest.run_snapshot --live --source fda
+          python -m ingest.run_snapshot --live --source imf
+          python -m ingest.run_snapshot --live --source gscpi
+      - name: ALFRED (only when the free key is configured)
+        if: ${{ env.FRED_API_KEY != '' }}
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python -m ingest.run_snapshot --live --source alfred
+      - name: commit the appended history
+        run: |
+          git config user.name "manifest-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/landing data/event_log.jsonl data/state.json
+          git commit -m "snapshot $(date -u +%F)" || echo "nothing changed today"
+          git push

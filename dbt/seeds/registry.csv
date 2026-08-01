@@ -1,0 +1,6 @@
+source,lane,event_type,natural_key,cadence,has_native_history
+alfred,vintage_replay,series_value_observed,series:observation_date,on_release,True
+openfda,snapshot_hash_diff,fda_shortage_observed|fda_recall_observed,shortage_fingerprint|recall_number,daily,False
+imf_imts,mirror_reconciliation,trade_mirror_observed,pair:year,monthly,False
+pharma_synthetic,epcis_movement_stream,epcis_commission|epcis_aggregate|epcis_ship|epcis_receive,lot:ndc:lot_no,on_demand,True
+gscpi,snapshot_hash_diff,index_value_observed,series:observation_date,monthly,False

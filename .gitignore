@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/manifest.duckdb
+dbt/target/
+dbt/logs/
+logs/
