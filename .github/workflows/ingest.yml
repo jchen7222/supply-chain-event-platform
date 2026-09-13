@@ -1,4 +1,4 @@
-ame: ingest
+name: ingest
 
 on:
   schedule:
