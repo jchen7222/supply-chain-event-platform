@@ -1,31 +1,65 @@
-name: ingest
+ame: ingest
+
 on:
   schedule:
     - cron: "17 6 * * *"      # daily 06:17 UTC — the visible schedule IS the credibility
   workflow_dispatch: {}
+
+# a cron + a push to the same branch can race itself; serialise the runs
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    timeout-minutes: 20                      # a hung upstream must not burn six hours
     permissions: {contents: write}
+
+    # ── THE FIX ───────────────────────────────────────────────────────────────
+    # env must be declared at JOB level for a step's own `if:` to see it.
+    # A step-level `env:` block is applied AFTER that step's `if:` is evaluated,
+    # and the `secrets` context is not available in a step `if:` at all — so the
+    # old  `if: ${{ env.FRED_API_KEY != '' }}`  next to a step-level env was
+    # always comparing an undefined value to '' → always false → always skipped.
+    env:
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+    # ──────────────────────────────────────────────────────────────────────────
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.11"}
       - run: pip install -r requirements.txt
-      - name: live snapshots (FDA daily; IMF + GSCPI cheap enough to ride along)
-        run: |
-          python -m ingest.run_snapshot --live --source fda
-          python -m ingest.run_snapshot --live --source imf
-          python -m ingest.run_snapshot --live --source gscpi
-      - name: ALFRED (only when the free key is configured)
-        if: ${{ env.FRED_API_KEY != '' }}
-        env:
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+
+      # one step per source, so a red X names the source instead of "exit code 1"
+      - name: snapshot — openFDA
+        run: python -m ingest.run_snapshot --live --source fda
+      - name: snapshot — IMF
+        run: python -m ingest.run_snapshot --live --source imf
+      - name: snapshot — NY Fed GSCPI
+        run: python -m ingest.run_snapshot --live --source gscpi
+
+      - name: snapshot — ALFRED (only when the free key is configured)
+        if: env.FRED_API_KEY != ''            # now resolvable: env comes from the job
         run: python -m ingest.run_snapshot --live --source alfred
+
+      - name: say so loudly when the key is absent
+        if: env.FRED_API_KEY == ''
+        run: echo "::warning title=ALFRED skipped::FRED_API_KEY is not set; no vintage captured this run"
+
       - name: commit the appended history
         run: |
-          git config user.name "manifest-bot"
+          git config user.name  "manifest-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/landing data/event_log.jsonl data/state.json
-          git commit -m "snapshot $(date -u +%F)" || echo "nothing changed today"
-          git push
+          # -A over an explicit list: an explicit pathspec that does not exist yet
+          # is a hard `fatal: pathspec ... did not match any files` → exit 1
+          git add -A data/
+          if git diff --cached --quiet; then
+            echo "nothing changed today"
+            exit 0
+          fi
+          git commit -m "snapshot $(date -u +%F)"
+          # the cron can collide with any other push; rebase once, then retry
+          git push || (git pull --rebase --autostash && git push)
+
