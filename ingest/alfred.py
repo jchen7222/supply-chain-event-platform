@@ -11,6 +11,7 @@ the documentation-shaped fixture in fixtures/alfred_mnfctrirsa_vintages.json
 import json
 import os
 import re
+from urllib.parse import urlencode
 
 from .client import ResilientClient
 
@@ -18,14 +19,30 @@ _client = ResilientClient("alfred", rate_limit_s=1.0)
 
 SERIES = "MNFCTRIRSA"     # Manufacturers: Inventories to Sales Ratio
 BASE = "https://api.stlouisfed.org/fred/series/observations"
+_KEY_SHAPE = re.compile(r"^[a-z0-9]{32}$")   # FRED's documented format
+
+
+def api_key():
+    """The FRED key from the environment, with surrounding whitespace removed.
+
+    A secret pasted with a trailing space is the single most common way this
+    lane breaks: the space rides into the URL and urllib refuses to send it.
+    Stripping here means a sloppy paste can never reach the request."""
+    return os.environ.get("FRED_API_KEY", "").strip()
 
 
 def fetch_vintages_live(series=SERIES):
-    key = os.environ.get("FRED_API_KEY")
+    key = api_key()
     if not key:
         raise RuntimeError("FRED_API_KEY not set — live ALFRED fetch needs a free key")
-    url = (f"{BASE}?series_id={series}&api_key={key}&file_type=json"
-           f"&output_type=2&realtime_start=2013-01-01")
+    if not _KEY_SHAPE.match(key):
+        # say what is wrong without echoing the secret into a log
+        raise RuntimeError(
+            f"FRED_API_KEY is malformed: expected 32 lowercase letters/digits, "
+            f"got {len(key)} characters — re-enter the secret")
+    params = {"series_id": series, "api_key": key, "file_type": "json",
+              "output_type": 2, "realtime_start": "2013-01-01"}
+    url = f"{BASE}?{urlencode(params)}"       # encodes, never interpolates
     return json.loads(_client.get(url))
 
 
