@@ -1,14 +1,91 @@
 name: test
-on: [push, pull_request]
+
+# Everything here runs OFFLINE against fixtures/. Anything that touches a live API
+# belongs in ingest.yml — this workflow is the badge, and a badge that depends on a
+# third party's uptime (or on a key that expires) is not a signal, it is noise.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+# a newer commit supersedes an in-flight run on the same ref
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # ── WHAT IS *NOT* HERE IS THE FIX ─────────────────────────────────────
+      # The old file passed the secret into the pytest step:
+      #
+      #     - run: python -m pytest -q
+      #       env:
+      #         FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      #
+      # When a secret is UNSET (or was deleted, or expired and removed), that
+      # expression renders to an EMPTY STRING — it does not vanish. So the
+      # variable goes from ABSENT to PRESENT-BUT-EMPTY, and a test guarded the
+      # common way:
+      #     @pytest.mark.skipif("FRED_API_KEY" not in os.environ, ...)
+      # stops skipping, runs a live call with an empty key, and fails.
+      #
+      # MEASURED, same test file, same pytest:
+      #     variable absent -> 1 passed, 2 skipped   exit 0
+      #     variable = ""   -> 1 failed, 1 passed    EXIT 1
+      #
+      # And the pass-through was never needed: a repository secret does NOT
+      # enter a job's environment on its own. It appears only where a workflow
+      # writes ${{ secrets.NAME }}. Omitting it IS the offline guarantee.
+      # ──────────────────────────────────────────────────────────────────────
+
+      # dbt on DuckDB — nothing to authenticate to. Absolute, because dbt resolves a
+      # relative DBT_PROFILES_DIR against the CWD, and pytest may chdir into dbt/.
+      DBT_PROFILES_DIR: ${{ github.workspace }}/profiles
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.11"}
-      - run: pip install -r requirements.txt
-      - run: python -m pytest -q          # includes fixture ingest, dbt build,
-                                          # and the point-in-time == vintage-archive assertion
-        env:
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}   # optional: activates the live ALFRED test
+      # Node-24 majors. Node 20 is REMOVED from runners on 2026-09-23, and the jump is
+      # not always one major — upload-artifact v5 still ran Node 20.
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip          # was missing: this alone saves ~40s a run
+
+      - name: install
+        run: pip install -r requirements.txt
+
+      # Prove the offline guarantee in the log instead of asserting it in a comment.
+      - name: confirm no FRED key is in scope
+        run: |
+          if [ -n "${FRED_API_KEY+set}" ]; then
+            echo "::warning title=not offline::FRED_API_KEY is DEFINED (length ${#FRED_API_KEY}) — presence-style skipif guards will NOT skip"
+          else
+            echo "FRED_API_KEY is not defined — the live ALFRED test will skip"
+          fi
+
+      # -rs prints the REASON for every skip, so the log SHOWS the offline guarantee
+      # holding rather than leaving a reader to infer it from a bare 's'.
+      # pytest exit codes: 0 all passed · 1 tests FAILED · 2 interrupted
+      #                    3 internal error · 4 usage error · 5 NO TESTS COLLECTED
+      - name: pytest — fixture ingest, dbt build, point-in-time == vintage archive
+        run: python -m pytest -q -rs --durations=10
+
+      # dbt's compiled SQL and run_results are what you actually need on a red build,
+      # and they die with the runner.
+      - name: keep the dbt artifacts when it breaks
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: dbt-artifacts
+          path: |
+            dbt/target/
+            dbt/logs/
+          retention-days: 7
+          if-no-files-found: ignore
