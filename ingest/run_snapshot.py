@@ -69,7 +69,9 @@ def main():
             prior_hashes=state.get("openfda"))
 
     if args.source in ("all", "alfred"):
-        payload = (alfred.fetch_vintages_live() if live and os.environ.get("FRED_API_KEY")
+        # alfred.api_key() strips whitespace, so a key that is only spaces reads
+        # as absent and falls back to the fixture instead of crashing mid-request
+        payload = (alfred.fetch_vintages_live() if live and alfred.api_key()
                    else json.load(open(os.path.join(FIX, "alfred_mnfctrirsa_vintages.json"))))
         n, vdates = alfred.replay(log, payload)
         print(f"alfred: {n} vintage-replay events across {len(vdates)} vintages"
