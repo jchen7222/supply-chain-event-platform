@@ -13,7 +13,7 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: [alfred, openfda, imf_imts, gscpi, pharma_synthetic]
+              values: [alfred, openfda, imf_imts, gscpi, pharma_synthetic, usitc_hts]
   - name: current_state
     columns:
       - name: entity_id
@@ -22,6 +22,21 @@ models:
     columns:
       - name: entity_id
         tests: [not_null]
+  - name: duty_rate_current
+    description: "Duty schedule in force now — one row per HS code, effective-dated."
+    columns:
+      - name: hts_code
+        tests: [unique, not_null]
+      - name: rate_kind
+        tests:
+          - not_null
+          - accepted_values:
+              values: [ad_valorem, free, specific, compound, unparsed]
+  - name: duty_rate_as_of
+    description: "The duty schedule as it stood on `as_of` — what a filer would have used that day."
+    columns:
+      - name: hts_code
+        tests: [unique, not_null]
 seeds:
   - name: registry
     description: "The source registry — one row per source; the dbt seed mirror of ingest/registry.py."

@@ -1,0 +1,23 @@
+{
+ "_note": "Index of archived HTS revisions used by the fixtures. The real archive at usitc.gov lists ~249 revisions back to 1989, each with an effective date and a Federal Register citation. These three are doc-shaped fixtures, not a copy of the archive.",
+ "revisions": [
+  {
+   "effective_from": "2024-05-15",
+   "label": "2024 Revision 5",
+   "file": "hts_2024_rev5.json",
+   "federal_register": "89 FR 41234"
+  },
+  {
+   "effective_from": "2025-07-01",
+   "label": "2025 Revision 12",
+   "file": "hts_2025_rev12.json",
+   "federal_register": "90 FR 28115"
+  },
+  {
+   "effective_from": "2026-03-20",
+   "label": "2026 Revision 3",
+   "file": "hts_2026_rev3.json",
+   "federal_register": "91 FR 10992"
+  }
+ ]
+}

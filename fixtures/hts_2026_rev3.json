@@ -1,0 +1,117 @@
+[
+ {
+  "htsno": "3304",
+  "indent": "0",
+  "description": "Beauty or make-up preparations",
+  "units": [],
+  "general": "",
+  "special": "",
+  "other": "",
+  "footnotes": []
+ },
+ {
+  "htsno": "3303.00.30.00",
+  "indent": "4",
+  "description": "Perfumes and toilet waters, containing alcohol",
+  "superior": null,
+  "units": [
+   "kg"
+  ],
+  "general": "Free",
+  "special": "Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA,OM,P,PA,PE,S,SG)",
+  "other": "35%",
+  "footnotes": [],
+  "quotaQuantity": null,
+  "additionalDuties": null
+ },
+ {
+  "htsno": "3304.99.50.00",
+  "indent": "4",
+  "description": "Beauty or make-up preparations, other",
+  "superior": null,
+  "units": [
+   "kg"
+  ],
+  "general": "4.9%",
+  "special": "Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA,OM,P,PA,PE,S,SG)",
+  "other": "35%",
+  "footnotes": [],
+  "quotaQuantity": null,
+  "additionalDuties": null
+ },
+ {
+  "htsno": "8507.60.00.20",
+  "indent": "4",
+  "description": "Lithium-ion storage batteries",
+  "superior": null,
+  "units": [
+   "kg"
+  ],
+  "general": "7.5%",
+  "special": "Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA,OM,P,PA,PE,S,SG)",
+  "other": "35%",
+  "footnotes": [],
+  "quotaQuantity": null,
+  "additionalDuties": null
+ },
+ {
+  "htsno": "4202.21.60.00",
+  "indent": "4",
+  "description": "Handbags with outer surface of leather, valued not over $20",
+  "superior": null,
+  "units": [
+   "kg"
+  ],
+  "general": "12%",
+  "special": "Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA,OM,P,PA,PE,S,SG)",
+  "other": "35%",
+  "footnotes": [],
+  "quotaQuantity": null,
+  "additionalDuties": null
+ },
+ {
+  "htsno": "6404.11.90.20",
+  "indent": "4",
+  "description": "Sports footwear with outer soles of rubber",
+  "superior": null,
+  "units": [
+   "kg"
+  ],
+  "general": "20%",
+  "special": "Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA,OM,P,PA,PE,S,SG)",
+  "other": "35%",
+  "footnotes": [],
+  "quotaQuantity": null,
+  "additionalDuties": null
+ },
+ {
+  "htsno": "0402.10.50.00",
+  "indent": "4",
+  "description": "Milk powder, not exceeding 1.5% fat",
+  "superior": null,
+  "units": [
+   "kg"
+  ],
+  "general": "3.3 cents/kg",
+  "special": "Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA,OM,P,PA,PE,S,SG)",
+  "other": "35%",
+  "footnotes": [],
+  "quotaQuantity": null,
+  "additionalDuties": null
+ },
+ {
+  "htsno": "6104.43.20.10",
+  "indent": "4",
+  "description": "Dresses of synthetic fibres",
+  "superior": null,
+  "units": [
+   "kg"
+  ],
+  "general": "16% + 2.5 cents/kg",
+  "special": "Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA,OM,P,PA,PE,S,SG)",
+  "other": "35%",
+  "footnotes": [],
+  "quotaQuantity": null,
+  "additionalDuties": null
+ }
+]
