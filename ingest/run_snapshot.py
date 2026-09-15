@@ -4,7 +4,14 @@
   python -m ingest.run_snapshot --live --source fda   # scheduled workflow path
 
 Writes: data/landing/<source>/... (append-only raw), data/manifest.duckdb
-(raw.event_log), data/event_log.jsonl, data/state.json (hash memory)."""
+(raw.event_log), data/event_log.jsonl, data/state.json (hash memory).
+
+The output directory is overridable with MANIFEST_DATA. That exists so the
+TEST SUITE can build a throwaway warehouse somewhere else instead of deleting
+and rebuilding the repository's own data/ — those files are tracked, and
+data/event_log.jsonl is the real collected history the nightly ingest appends
+to. It pairs with MANIFEST_DB, which dbt/profiles/profiles.yml already reads,
+so both halves of the pipeline can be pointed at the same temp directory."""
 import argparse
 import datetime as dt
 import json
@@ -12,12 +19,13 @@ import os
 
 import duckdb
 
-from . import alfred, gscpi, imf, movements, openfda
+from . import alfred, gscpi, hts, imf, movements, openfda
 from .envelope import EventLog
 from .landing import land
 from .registry import write_seed
 
-DATA = os.path.join(os.path.dirname(__file__), "..", "data")
+DATA = (os.environ.get("MANIFEST_DATA")
+        or os.path.join(os.path.dirname(__file__), "..", "data"))
 FIX = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 
 PAIR_FILES = {  # captured live from api.imf.org (July 2026) — real data
@@ -42,7 +50,7 @@ def main():
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--fixtures", action="store_true")
     ap.add_argument("--source", default="all",
-                    choices=["all", "alfred", "fda", "imf", "gscpi", "pharma"])
+                    choices=["all", "alfred", "fda", "hts", "imf", "gscpi", "pharma"])
     ap.add_argument("--as-of", default=None,
                     help="record_time stamp for this snapshot (default: today UTC)")
     args = ap.parse_args()
@@ -76,6 +84,17 @@ def main():
         n, vdates = alfred.replay(log, payload)
         print(f"alfred: {n} vintage-replay events across {len(vdates)} vintages"
               + ("" if live else "  [doc-shaped fixture — set FRED_API_KEY for live]"))
+
+    if args.source in ("all", "hts"):
+        # Effective-dated reference data: each archived HTS revision lands as a
+        # set of duty_rate rows stamped with the revision's effective date, so
+        # the rate applied to a past shipment is the rate that was in force on
+        # its ship date. Live fetch pulls a named revision; the fixtures are
+        # three doc-shaped revisions with two real rate changes between them.
+        revisions = hts.load_revisions()
+        n = hts.replay(log, revisions)
+        print(f"hts: {n} duty-rate changes across {len(revisions)} archived revisions"
+              + ("" if live else "  [doc-shaped fixtures — see ingest/hts.py]"))
 
     if args.source in ("all", "imf"):
         for pair, (f_cif, f_fob, f_x) in PAIR_FILES.items():

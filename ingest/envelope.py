@@ -61,6 +61,11 @@ class EventLog:
         if key in self._seen:                       # exact replay: no-op
             return None
         if self._latest_hash.get(entity_id) == h:   # unchanged observation: no-op
+            # Record it as seen even though nothing was appended. Otherwise a
+            # later full replay re-emits this observation once the entity's
+            # latest hash has moved on: A -> A -> B replayed twice would append
+            # the second A. Deciding "no-op" IS having seen it.
+            self._seen.add(key)
             return None
         ev = {
             "seq": len(self.events),
