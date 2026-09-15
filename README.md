@@ -131,3 +131,7 @@ gh repo create manifest --public --source=. --push
 ```
 
 Snowflake note: the dbt project runs on DuckDB so a reviewer needs no account, and `dbt/profiles/profiles.yml` now carries a second, env-var-driven **Snowflake target** (`dbt build -t snowflake`) — the dual target is the portability talking point. Claim Snowflake on the resume line only after you have actually run the models on a trial account.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). All data here is public (openFDA, IMF, NY Fed, ALFRED) or synthetic; nothing proprietary lives in this repository.
