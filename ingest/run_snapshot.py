@@ -4,7 +4,14 @@
   python -m ingest.run_snapshot --live --source fda   # scheduled workflow path
 
 Writes: data/landing/<source>/... (append-only raw), data/manifest.duckdb
-(raw.event_log), data/event_log.jsonl, data/state.json (hash memory)."""
+(raw.event_log), data/event_log.jsonl, data/state.json (hash memory).
+
+The output directory is overridable with MANIFEST_DATA. That exists so the
+TEST SUITE can build a throwaway warehouse somewhere else instead of deleting
+and rebuilding the repository's own data/ — those files are tracked, and
+data/event_log.jsonl is the real collected history the nightly ingest appends
+to. It pairs with MANIFEST_DB, which dbt/profiles/profiles.yml already reads,
+so both halves of the pipeline can be pointed at the same temp directory."""
 import argparse
 import datetime as dt
 import json
@@ -17,7 +24,8 @@ from .envelope import EventLog
 from .landing import land
 from .registry import write_seed
 
-DATA = os.path.join(os.path.dirname(__file__), "..", "data")
+DATA = (os.environ.get("MANIFEST_DATA")
+        or os.path.join(os.path.dirname(__file__), "..", "data"))
 FIX = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 
 PAIR_FILES = {  # captured live from api.imf.org (July 2026) — real data
