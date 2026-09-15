@@ -8,7 +8,7 @@
 
 ```bash
 pip install -r requirements.txt
-python -m pytest -q                                   # ingest fixtures + dbt build + 20 assertions
+python -m pytest -q                                   # ingests fixtures, builds dbt, asserts 72
 python -m ingest.run_snapshot --fixtures              # or run the pipeline directly
 cd dbt && dbt build --profiles-dir profiles           # folds + marts + schema tests
 ```
@@ -34,7 +34,7 @@ create table raw.event_log (
 );
 ```
 
-Four decisions taken directly from the standard: `eventTime` vs `recordTime` is EPCIS's bitemporal split; *"there is no mechanism … by which an application can delete or modify an EPCIS Event"* — corrections are subsequent events; an ErrorDeclaration reuses the original `event_id` (*"the sole case where the same non-null eventID may appear in two events"*) and points forward via `correctiveEventIDs`; and the repository assigns `record_time`. Claim made here: the envelope is **modeled on** EPCIS after reading the standard — not EPCIS production experience.
+Four decisions taken directly from the standard: `eventTime` vs `recordTime` is EPCIS's bitemporal split; *"there is no mechanism … by which an application can delete or modify an EPCIS Event"* — corrections are subsequent events; an ErrorDeclaration reuses the original `event_id` (*"the sole case where the same non-null eventID may appear in two events"*) and points forward via `correctiveEventIDs`; and the repository assigns `record_time`. Scope, stated plainly: the envelope is **modeled on** EPCIS after reading the standard. It is not a certified implementation, and nothing here claims EPCIS production experience.
 
 ```
 landing/ (raw bytes, append-only, content-addressed)     — disposable? NO: evidence
@@ -104,6 +104,44 @@ The decomposition is the judgment call the README exists for: the CIF/FOB **valu
 
 The NY Fed Global Supply Chain Pressure Index: one free file, 342 monthly observations back to 1998, re-estimated over its full history every release (inputs arrive with *"revisions to up to twelve months of previous data"* — the most extreme revision behavior here, which is why it belongs in an event log). Adding it touched one registry row and one ~60-line mapping module — **pin that commit** (see Publishing below). Trap, confirmed live: the download is an OLE2 legacy `.xls` wearing an `.xlsx` extension (magic bytes `d0cf11e0`); `openpyxl` fails on it, so `ingest/gscpi.py` sniffs the magic and picks the engine — regression-tested.
 
+## Lane 5 — USITC HTS: the rule as reference data, and its own oracle
+
+Every other lane answers *what was observed*. This one answers **what was the rule** — and a rule is where most systems quietly lose history, because a tariff table is normally a lookup that gets **overwritten** when rates change. Overwrite it once and every past landed cost silently re-prices at today's rates.
+
+The USITC publishes the Harmonized Tariff Schedule as **~249 dated revisions back to 1989**, each downloadable as JSON or CSV, each citing the Federal Register notice behind it. That is a genuine vintage archive, so the same source supplies both halves: the **dimension** (duty rates as effective-dated rows) and the **assertion** (the archive read by an independent code path that never touches the event log).
+
+```
+hts: 10 duty-rate changes across 3 archived revisions
+```
+
+```sql
+-- dbt build --select +duty_rate_as_of --vars '{as_of: "2024-06-01"}'
+hts_code        general_rate_raw  ad_valorem_rate  effective_from
+8507.60.00.20   3.4%              0.034            2024-05-15     -- lithium-ion
+3304.99.50.00   Free              0.0              2024-05-15     -- cosmetics
+
+--                              as_of "2026-09-01"
+8507.60.00.20   7.5%              0.075            2025-07-01
+3304.99.50.00   4.9%              0.049            2026-03-20
+```
+
+A lithium-ion shipment that left in **June 2024 owes $34 on $1,000** and must still owe $34 after two later revisions took the rate to 7.5% — asserted in Python and again through dbt (`test_a_shipment_is_not_repriced_by_a_later_revision`).
+
+**The parse refuses rather than guesses.** The `general` column is a string, and only some of it is ad valorem:
+
+| raw | parsed |
+|---|---|
+| `Free` | `0.0`, kind `free` |
+| `3.4%` | `0.034`, kind `ad_valorem` |
+| `3.3 cents/kg` | `None`, kind **`specific`** — needs a quantity |
+| `16% + 2.5 cents/kg` | `None`, kind **`compound`** |
+
+A specific duty cannot be multiplied by a declared value, so it is flagged, never coerced. `landed_duty()` raises on a `None` rate. Coercing would produce a plausible wrong number, which is worse than a refusal — and a dbt singular test fails the build if a rate and its kind ever disagree.
+
+**What is deliberately *not* in the payload:** the revision label. Idempotency is a hash of the payload, so including the label would mark every code "changed" at every revision — 249 revisions × ~19,000 lines of no-ops instead of changes. The label is 1:1 with the effective date, which *is* on the event, so `revision_label()` recovers it and the fixture index carries the Federal Register citation. **Provenance that can be derived does not belong in the hashed fact.**
+
+Fixtures here are shaped per the USITC JSON export and labelled as fixtures — three revisions with two real rate changes between them, not a copy of the archive.
+
 ## The four failure classes, reproduced in public data
 
 1. **Records lost between services** — IMF's 200-with-zero-series wildcard (and UN Comtrade's silent 500-record preview cap). Caught by a row-count/emptiness assertion, not an exception handler.
@@ -115,22 +153,21 @@ The NY Fed Global Supply Chain Pressure Index: one free file, 342 monthly observ
 
 `dbt/models/generated/source_event_counts.sql` is written **by the registry seed at compile time** — a jinja loop over `seeds/registry.csv`. Adding a source adds its block with no model edit; `tests/test_dbt_folds.py` asserts the generated model always covers exactly the sources in the raw log.
 
-## Tests (28 passing, 1 live-keyed skip)
+## Tests (72 passing, 1 live-keyed skip)
 
 Client layer: retry-then-success with exponential backoff; circuit opens and fails fast (zero further calls); response cache prevents repeat calls; pagination walks pages and stops. Envelope: append-only; same-`event_id`-only-via-ErrorDeclaration (also enforced as a dbt singular test); rescission is **as-of-aware**; **idempotent replay** — re-running the same fixtures appends zero events (exact-replay natural keys plus unchanged-observation hash checks), a test, not a hope. ALFRED: every vintage reproduced by the fold; late-added observation absent before its vintage; revision changes value between vintages; live variant when `FRED_API_KEY` is set. openFDA: ISO normalization + logging; hash-diff silence on no change; mutation caught. IMF: decomposition sums; attribution > valuation; `ZeroSeriesError` on the trap. GSCPI: magic sniff; full history; revision memory. Pharma: drill locates every lot; as-of shows belief (depot) vs fact (pharmacy); replay is a no-op. dbt: current-state uniqueness; history chain sanity; generated-model coverage; decomposition-sum and event-id-rule singular tests; **point-in-time == vintage archive, through dbt**.
 
-## Publishing (staged, so the proofs are pinnable)
+## Portability
 
-```bash
-git init && git add -A ':!ingest/gscpi.py' ':!fixtures/gscpi_data.xlsx'
-git commit -m "manifest: EPCIS-modeled envelope, ALFRED replay, openFDA memory, IMF mirror reconciliation"
-git add ingest/gscpi.py fixtures/gscpi_data.xlsx
-git commit -m "add GSCPI: one registry row + one mapping module"   # <- the pinned add-a-source commit
-gh repo create manifest --public --source=. --push
-# then: repo Settings -> Secrets -> FRED_API_KEY (free key) to activate live ALFRED
-```
+The dbt project runs on DuckDB, so the models build with no account and no
+credentials — `pip install -r requirements.txt` and `dbt build` is the whole
+setup. `dbt/profiles/profiles.yml` also carries an env-var-driven Snowflake
+target (`dbt build -t snowflake`); the models are written in portable SQL and
+the warehouse is a profile choice rather than a rewrite.
 
-Snowflake note: the dbt project runs on DuckDB so a reviewer needs no account, and `dbt/profiles/profiles.yml` now carries a second, env-var-driven **Snowflake target** (`dbt build -t snowflake`) — the dual target is the portability talking point. Claim Snowflake on the resume line only after you have actually run the models on a trial account.
+Live ALFRED ingestion needs a free FRED API key in `FRED_API_KEY`. Without one
+the workflow warns and skips that source rather than failing, and the test
+suite skips its live variant — every other assertion still runs.
 
 ## Licence
 
