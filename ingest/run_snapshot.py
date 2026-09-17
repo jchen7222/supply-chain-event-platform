@@ -20,7 +20,7 @@ import os
 import duckdb
 
 from . import (alfred, decisions, gscpi, hts, imf, movements, openfda, orders,
-               orders_csv)
+               orders_csv, price_book)
 from .envelope import EventLog
 from .landing import land
 from .registry import write_seed
@@ -77,6 +77,12 @@ def main():
                     help="write the priced sheet here (with --orders-csv)")
     ap.add_argument("--day-first", action="store_true",
                     help="read ambiguous dates as D/M/Y instead of M/D/Y")
+    ap.add_argument("--price-book", default="price_book.jsonl", metavar="NAME",
+                    help="observed site prices, read as-of each order's date "
+                         "(fixtures/<NAME>; 'none' to disable)")
+    ap.add_argument("--decisions", default=None, metavar="PATH",
+                    help="routing decisions exported by dispatch-planner "
+                         "(default: the committed sample fixture)")
     args = ap.parse_args()
     if args.results and not args.orders_csv:
         ap.error("--results needs --orders-csv")
@@ -173,6 +179,39 @@ def main():
                 print(f"        refused line {r['line']}: {r['reason']}")
         else:
             recs = orders.load_fixture()
+
+        # The source price, looked up as-of each order's own date. This runs
+        # BEFORE pricing and never after: a quote must be computed from the
+        # price that was in force when the order was placed, not the one on the
+        # site now. Orders the book cannot price keep their gap reason and are
+        # rejected with it, so they arrive as a work list naming exactly what
+        # to go and observe.
+        if args.price_book and args.price_book.lower() != "none":
+            book_rows = price_book.load(args.price_book)
+            if book_rows:
+                n = price_book.replay(log, book_rows)
+                book = price_book.index(book_rows)
+                need = [o for o in recs if o.get("retail_price_cad") in (None, "")]
+                recs = price_book.apply_to(recs, book)
+                filled = [o for o in recs if o.get("price_observed_on")]
+                print(f"prices: {len(book_rows)} observations "
+                      f"({n} new to the ledger) -> {len(filled)} of "
+                      f"{len(need)} orders priced from the book")
+                for o in filled:
+                    if o["price_match"] != "style_colour_size":
+                        print(f"        {o['order_ref']}: matched by "
+                              f"{o['price_match']}, not exactly — "
+                              f"C${o['retail_price_cad']:.2f} observed "
+                              f"{o['price_observed_on']}")
+                for o in recs:
+                    if o.get("price_gap"):
+                        print(f"        LOOK UP {o['order_ref']} "
+                              f"({o.get('style_no') or o.get('product_name')}): "
+                              f"{o['price_gap']}")
+            elif args.orders_csv:
+                print(f"prices: fixtures/{args.price_book} is empty or missing — "
+                      f"orders without a price column cannot be quoted")
+
         c = orders.replay(log, recs, record_time=today)
         print(f"orders: {c['placed']} placed, {c['quoted']} quoted, "
               f"{c['rejected']} rejected"
@@ -219,7 +258,15 @@ def main():
         # The seam. dispatch-planner writes this file; we read it as a source.
         # Live mode has no endpoint to call — the planner is a peer system, not
         # an API — so the same file is read either way and we say so.
-        path = os.path.join(FIX, "dispatch_decisions_sample.jsonl")
+        #
+        # --decisions exists so an orchestrator can point this at the file the
+        # planner just produced, WITHOUT copying it over the committed sample.
+        # That was the first thing I made the runner do, and it silently
+        # overwrote a tracked fixture: the next test run then read a one-line
+        # stub as the seam contract and the whole build failed somewhere else
+        # entirely. A pipeline should read where it is told to read, not have
+        # its own fixtures rewritten underneath it.
+        path = args.decisions or os.path.join(FIX, "dispatch_decisions_sample.jsonl")
         recs = decisions.parse(open(path, "rb").read())
         land(os.path.join(DATA, "landing"), "dispatch_planner",
              "dispatch_decisions.jsonl", open(path, "rb").read(), today)

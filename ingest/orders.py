@@ -128,12 +128,16 @@ def quote(order, pricing, rates):
     if rate is None:
         raise OrderError(f"no exchange rate in force on {on}")
 
-    # Said plainly, because this is the common case for a spreadsheet drop: the
-    # order form records what the customer wants, not what the retailer charges
-    # for it. float(None) would say "must be real number, not NoneType", which
-    # reads like a bug in the pipeline rather than a missing column in the file.
+    # The order form records what the customer wants, not what the retailer
+    # charges for it — the price is looked up, which is the whole job. So a
+    # missing price is the normal case for a spreadsheet drop, and the useful
+    # error is the one the price book gives: what could not be found, and what
+    # to do about it. float(None) would say "must be real number, not
+    # NoneType", which reads like a bug in the pipeline rather than a product
+    # nobody has observed yet.
     if order.get("retail_price_cad") in (None, ""):
-        raise OrderError("no source price supplied — awaiting product lookup")
+        raise OrderError(order.get("price_gap")
+                         or "no source price: not looked up yet")
 
     cad = float(order["retail_price_cad"])
     qty = int(order["quantity"])
@@ -243,6 +247,15 @@ def replay(log, orders, record_time, pricing=None, rates=None):
                        "capped_by_china_price": q.capped_by_china_price,
                        "fx_rate": q.fx_rate,
                        "fx_effective_from": q.fx_effective_from,
+                       # Where the source price came from. Without these, the
+                       # quote records the number but not the observation that
+                       # produced it, and "why ¥915?" is answerable only down
+                       # to the FX rate — the other half of the answer is which
+                       # site price was in force, and how confidently it
+                       # matched this order.
+                       "retail_price_cad": o.get("retail_price_cad"),
+                       "price_observed_on": o.get("price_observed_on"),
+                       "price_match": o.get("price_match"),
                        "pricing_version": q.pricing_version},
                       event_time=o["ordered_at"][:10], record_time=record_time):
             counts["quoted"] += 1

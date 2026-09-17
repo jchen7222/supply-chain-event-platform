@@ -14,7 +14,8 @@ models:
           - not_null
           - accepted_values:
               values: [alfred, openfda, imf_imts, gscpi, pharma_synthetic, usitc_hts,
-                       dispatch_planner, order_intake, courier_tracking]
+                       dispatch_planner, order_intake, courier_tracking,
+                       price_book]
   - name: current_state
     columns:
       - name: entity_id

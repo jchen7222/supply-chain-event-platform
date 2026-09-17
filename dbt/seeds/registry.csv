@@ -5,6 +5,7 @@ imf_imts,mirror_reconciliation,trade_mirror_observed,pair:year,monthly,False
 pharma_synthetic,epcis_movement_stream,epcis_commission|epcis_aggregate|epcis_ship|epcis_receive,lot:ndc:lot_no,on_demand,True
 usitc_hts,effective_dated_reference,duty_rate_observed,hts_code,on_revision,True
 order_intake,decision_with_reference_data,order_placed|order_quoted|order_rejected|payment_link_issued,order_ref,continuous,False
+price_book,effective_dated_reference,price_observed,style_no|product_name:colour:size,on_observation,True
 courier_tracking,webhook_event_log,shipment_scanned,waybill:scan_id,continuous,True
 dispatch_planner,decision_ingest,routing_decided,order_id,per_plan,False
 gscpi,snapshot_hash_diff,index_value_observed,series:observation_date,monthly,False

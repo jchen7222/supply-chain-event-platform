@@ -211,7 +211,19 @@ def test_a_missing_price_says_so_in_words_a_human_can_act_on():
     recs, _, _ = oc.parse_csv(
         "订单号,客户,商品名称,数量,下单时间\nA1,小美,Align,1,2026-09-02\n")
     gaps = orders.unquotable(recs)
-    assert gaps[0]["reason"] == "no source price supplied — awaiting product lookup"
+    assert gaps[0]["reason"] == "no source price: not looked up yet"
+
+
+def test_the_price_books_own_reason_is_what_reaches_the_rejection():
+    # When the lookup ran and failed, its sentence is more useful than a
+    # generic one — it names the product and what to do.
+    from ingest import price_book as pb
+    recs, _, _ = oc.parse_csv(
+        "订单号,客户,商品名称,款号,数量,下单时间\n"
+        "A1,小美,Mystery Item,ZZ9,1,2026-09-02\n")
+    priced = pb.apply_to(recs, pb.index(pb.load()))
+    gaps = orders.unquotable(priced)
+    assert "ZZ9 is not in the price book" in gaps[0]["reason"]
 
 
 # ── derived refs and the double drop ─────────────────────────────────────────

@@ -389,7 +389,11 @@ def load_fixture(name="orders_sample.csv"):
 RESULT_COLUMNS = [
     "order_ref", "status", "customer", "platform", "product_name",
     "style_no", "colour", "size", "quantity",
-    "retail_price_cad", "landed_cad",
+    # The source price and where it came from. `price_observed_on` and
+    # `price_match` are in the sheet, not only the ledger, because the person
+    # reading the sheet is the one who has to decide whether a price matched by
+    # style-ignoring-colour is good enough to send to a customer.
+    "retail_price_cad", "price_observed_on", "price_match", "landed_cad",
     "fx_rate", "fx_effective_from", "pricing_version",
     "sell_cny", "total_cny", "profit_cad", "capped_by_china_price",
     "reason", "order_ref_derived", "ordered_at", "ordered_at_source",
@@ -411,6 +415,7 @@ def result_rows(records, pricing=None, rates=None):
         row = {k: r.get(k) for k in
                ("order_ref", "customer", "platform", "product_name", "style_no",
                 "colour", "size", "quantity", "retail_price_cad",
+                "price_observed_on", "price_match",
                 "order_ref_derived", "ordered_at", "ordered_at_source")}
         try:
             q = _orders.quote(r, pricing, rates)

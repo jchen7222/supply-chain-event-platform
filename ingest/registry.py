@@ -30,6 +30,16 @@ REGISTRY = [
      "event_type": "order_placed|order_quoted|order_rejected|payment_link_issued",
      "natural_key": "order_ref", "cadence": "continuous",
      "has_native_history": False},
+    # The third piece of effective-dated reference data, alongside the duty
+    # schedule and the FX rate. An observed retail price is a fact with a date,
+    # because a retailer moves its prices whenever it likes and a quote given
+    # on Tuesday must still read as correct at Tuesday's price. Same shape as
+    # usitc_hts: record_time is the day it was observed, which is what makes a
+    # full replay a no-op. See ingest/price_book.py.
+    {"source": "price_book", "lane": "effective_dated_reference",
+     "event_type": "price_observed",
+     "natural_key": "style_no|product_name:colour:size", "cadence": "on_observation",
+     "has_native_history": True},
     # Courier webhooks through API Gateway -> SQS -> Lambda -> S3, folded here.
     # Scans arrive late, out of order and duplicated; see tracking/.
     {"source": "courier_tracking", "lane": "webhook_event_log",
