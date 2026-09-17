@@ -23,6 +23,19 @@ REGISTRY = [
      "event_type": "duty_rate_observed",
      "natural_key": "hts_code", "cadence": "on_revision",
      "has_native_history": True},
+    # The front door: a customer order, and the quote we gave for it. A quote
+    # is a decision, so it carries the FX rate and pricing version that made
+    # it — see ingest/orders.py.
+    {"source": "order_intake", "lane": "decision_with_reference_data",
+     "event_type": "order_placed|order_quoted|order_rejected|payment_link_issued",
+     "natural_key": "order_ref", "cadence": "continuous",
+     "has_native_history": False},
+    # Courier webhooks through API Gateway -> SQS -> Lambda -> S3, folded here.
+    # Scans arrive late, out of order and duplicated; see tracking/.
+    {"source": "courier_tracking", "lane": "webhook_event_log",
+     "event_type": "shipment_scanned",
+     "natural_key": "waybill:scan_id", "cadence": "continuous",
+     "has_native_history": True},
     # The loop-closing lane: not an observation of the world, but a decision
     # made by another system, ingested so it is subject to the same fold and
     # the same audit as everything else. Contract: ingest/decisions.py.

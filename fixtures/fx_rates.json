@@ -1,0 +1,18 @@
+{
+ "note": "Doc-shaped FX reference data. CNY per CAD, effective-dated so a quote given on a past date is recomputed at that date's rate. Three rates with real movement between them.",
+ "source": "shape follows a central-bank daily reference series",
+ "rates": [
+  {
+   "effective_from": "2026-08-01",
+   "cny_per_cad": 5.12
+  },
+  {
+   "effective_from": "2026-09-01",
+   "cny_per_cad": 5.05
+  },
+  {
+   "effective_from": "2026-09-10",
+   "cny_per_cad": 4.88
+  }
+ ]
+}

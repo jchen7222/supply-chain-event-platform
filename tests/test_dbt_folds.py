@@ -6,7 +6,7 @@ import os
 
 import duckdb
 
-from ingest import alfred, decisions, hts
+from ingest import alfred, decisions, hts, orders
 
 FIX = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "fixtures", "alfred_mnfctrirsa_vintages.json")
@@ -148,3 +148,121 @@ def test_headings_that_changed_on_different_dates_resolve_independently(con):
         select count(distinct rate_effective_from)
         from landed_duty_by_order where pricing_status = 'priceable'""").fetchone()[0]
     assert effs >= 3, "a single global as-of would have collapsed these"
+
+
+# ── the spine: order intake -> tariff -> courier, in one row ─────────────────
+
+def test_the_spine_has_one_row_per_order(con):
+    n, dup = con.execute("""
+        select count(*), count(*) - count(distinct order_ref)
+        from order_to_delivery""").fetchone()
+    assert n == 6 and dup == 0
+
+
+def test_every_order_reaches_exactly_one_state(con):
+    """Conservation, stated as coverage: no order is in no state, and the
+    states partition the population."""
+    rows = dict(con.execute("""select order_state, count(*)
+                               from order_to_delivery group by 1""").fetchall())
+    assert sum(rows.values()) == 6
+    assert rows.get("rejected") == 1
+    assert rows.get("delivered") == 1
+    assert rows.get("needs_attention") == 1
+
+
+def test_a_rejected_order_carries_its_reason_and_no_money(con):
+    r = con.execute("""select rejection_reason, sell_cny, waybill
+                       from order_to_delivery where order_state = 'rejected'""").fetchone()
+    assert "no exchange rate in force" in r[0]
+    assert r[1] is None and r[2] is None
+
+
+def test_the_quote_records_the_rate_that_made_it(con):
+    """Two orders for the same product at the same retail price, ten days
+    apart, quoted at different rates — because the world moved."""
+    rows = dict(con.execute("""
+        select order_ref, fx_rate from order_to_delivery
+        where product_name like 'Align%' order by order_ref""").fetchall())
+    assert rows["A1001"] == 5.05
+    assert rows["A1004"] == 4.88
+
+
+def test_the_duty_rate_is_the_one_in_force_on_the_order_date(con):
+    """Per row, not per build — the same discipline as landed_duty_by_order."""
+    bad = con.execute("""select count(*) from order_to_delivery
+                         where duty_effective_from is not null
+                           and duty_effective_from > ordered_on""").fetchone()[0]
+    assert bad == 0
+
+
+def test_the_duty_rate_matches_the_archive_row_by_row(con):
+    """Oracle check, same pattern as the other lanes: the archive read directly,
+    never through the event log."""
+    revs = hts.load_revisions()
+    rows = con.execute("""select order_ref, hts_code, ordered_on, duty_rate
+                          from order_to_delivery
+                          where duty_rate is not null""").fetchall()
+    assert rows
+    for ref, code, on, rate in rows:
+        assert rate == hts.rate_as_of(revs, code, on), f"{ref}: {code} as-of {on}"
+
+
+def test_an_earlier_order_would_have_paid_the_pre_cut_apparel_rate():
+    """The counterfactual that proves the as-of lookup is doing work. Knitted
+    synthetic trousers were 28.2% until the 2026 Rev 3 cut to 16%; every order
+    in the fixture is after the cut, so without this the rate change would be
+    untested."""
+    revs = hts.load_revisions()
+    assert hts.rate_as_of(revs, "6104.63.20.11", "2026-03-19") == 0.282
+    assert hts.rate_as_of(revs, "6104.63.20.11", "2026-03-20") == 0.16
+
+
+def test_duty_is_the_line_the_pricing_tool_never_knew_about(con):
+    """THE FINDING. The spreadsheet computes landed cost as retail + tax +
+    freight + handling. Apparel duty is 16-32%, so it is usually the largest
+    single line — and for at least one order it is the difference between a
+    profit and a loss."""
+    rows = con.execute("""
+        select order_ref, quoted_profit_cad, duty_cad, true_profit_cad
+        from order_to_delivery where duty_cad is not null
+        order by order_ref""").fetchall()
+    assert rows
+    for ref, quoted, duty, true in rows:
+        assert duty > 0
+        assert abs(true - (quoted - duty)) < 0.01, ref
+        assert true < quoted, f"{ref}: duty must reduce the margin"
+
+    flipped = [r for r in rows if r[1] > 0 and r[3] < 0]
+    assert flipped, "expected at least one order that duty turns into a loss"
+    assert flipped[0][0] == "A1002"
+
+
+def test_the_last_scan_is_the_latest_by_occurrence(con):
+    """A1003's delivery webhook arrived before its customs-clearance scan.
+    Ordering by arrival would leave it reading as still in customs."""
+    r = con.execute("""select last_status, scan_count from order_to_delivery
+                       where order_ref = 'A1003'""").fetchone()
+    assert r == ("delivered", 3)
+
+
+def test_a_customs_hold_surfaces_as_needs_attention(con):
+    r = con.execute("""select order_ref, last_status from order_to_delivery
+                       where order_state = 'needs_attention'""").fetchone()
+    assert r == ("A1002", "customs_held")
+
+
+def test_a_parcel_with_no_order_is_reported(con):
+    """Reconciliation in the uncomfortable direction: is anything coming out
+    that we never took in? One waybill is being scanned that no order accounts
+    for — a work list, not a build failure."""
+    rows = con.execute("""select waybill, scan_count, last_status
+                          from parcels_without_orders""").fetchall()
+    assert rows == [("YT8806", 2, "in_transit")]
+
+
+def test_no_order_appears_as_both_shipped_and_unshipped(con):
+    bad = con.execute("""select count(*) from order_to_delivery
+                         where waybill is null
+                           and order_state not in ('rejected','quoted_not_shipped')"""
+                      ).fetchone()[0]
+    assert bad == 0

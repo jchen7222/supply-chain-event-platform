@@ -19,7 +19,7 @@ import os
 
 import duckdb
 
-from . import alfred, decisions, gscpi, hts, imf, movements, openfda
+from . import alfred, decisions, gscpi, hts, imf, movements, openfda, orders
 from .envelope import EventLog
 from .landing import land
 from .registry import write_seed
@@ -45,13 +45,28 @@ def _save_state(s):
     json.dump(s, open(os.path.join(DATA, "state.json"), "w"), indent=1)
 
 
+def _arrival(scan):
+    """When the webhook reached us. Normally an hour after the scan; the customs
+    hold on YT8802 takes three days, which is the case the receipt time exists
+    for."""
+    import datetime as dt
+    if scan.get("scan_id") == "s10":
+        return "2026-09-06T08:00:00+00:00"
+    raw = scan.get("occurred_at") or scan.get("scanned_at")
+    try:
+        t = dt.datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return (t + dt.timedelta(hours=1)).isoformat()
+    except (ValueError, TypeError):
+        return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--fixtures", action="store_true")
     ap.add_argument("--source", default="all",
                     choices=["all", "alfred", "fda", "hts", "imf", "gscpi", "pharma",
-                             "decisions"])
+                             "decisions", "orders", "tracking"])
     ap.add_argument("--as-of", default=None,
                     help="record_time stamp for this snapshot (default: today UTC)")
     args = ap.parse_args()
@@ -119,6 +134,44 @@ def main():
         n, vals = gscpi.snapshot(log, today, raw, prior_values=state.get("gscpi"))
         state["gscpi"] = vals
         print(f"gscpi: {n} new/changed monthly values (of {len(vals)} in the file)")
+
+    if args.source in ("all", "orders"):
+        recs = orders.load_fixture()
+        c = orders.replay(log, recs, record_time=today)
+        print(f"orders: {c['placed']} placed, {c['quoted']} quoted, "
+              f"{c['rejected']} rejected"
+              + (f", {c['loss_making']} LOSS-MAKING" if c['loss_making'] else ""))
+        for g in orders.unquotable(recs):
+            print(f"        {g['order_ref']} ({g['customer']}): {g['reason']}")
+
+    if args.source in ("all", "tracking"):
+        # The AWS lane, run in process against moto-mocked AWS — the same
+        # handler code a deployment calls, with no credentials. See tracking/.
+        from tracking import projections as tpj
+        from tracking.handler import as_sqs_event, consume
+        import boto3
+        from moto import mock_aws
+        feed = json.load(open(os.path.join(FIX, "courier_scans_sample.json"),
+                              encoding="utf-8"))
+        with mock_aws():
+            s3 = boto3.client("s3", region_name="us-east-1")
+            s3.create_bucket(Bucket="manifest-tracking-log")
+            ev = as_sqs_event([{"scan": sc, "received_at": _arrival(sc)}
+                               for sc in feed["good"] + feed["bad"]])
+            counts = consume(ev, s3_client=s3, bucket="manifest-tracking-log",
+                             run_id=today)
+            scan_log = tpj.read_log(s3, "manifest-tracking-log")
+            quarantined = tpj.read_quarantine(s3, "manifest-tracking-log")
+        hop = tpj.reconcile(counts)
+        n = tpj.to_events(scan_log, log, record_time=today)
+        print(f"tracking: {counts['messages']} webhooks -> {counts['landed']} landed, "
+              f"{counts['duplicates']} duplicate, {counts['quarantined']} quarantined "
+              f"[{'RECONCILED' if hop['reconciled'] else 'MISMATCH'}] -> {n} events")
+        for q in quarantined:
+            print(f"          quarantined: {q['reason']}")
+        for s_ in tpj.late_scans(scan_log, days=2):
+            print(f"          late by {s_['lag_days']}d: {s_['waybill']} "
+                  f"{s_['status']} (scanned {s_['occurred_at'][:10]})")
 
     if args.source in ("all", "decisions"):
         # The seam. dispatch-planner writes this file; we read it as a source.

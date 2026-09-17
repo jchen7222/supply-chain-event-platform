@@ -14,7 +14,7 @@ models:
           - not_null
           - accepted_values:
               values: [alfred, openfda, imf_imts, gscpi, pharma_synthetic, usitc_hts,
-                       dispatch_planner]
+                       dispatch_planner, order_intake, courier_tracking]
   - name: current_state
     columns:
       - name: entity_id
@@ -33,6 +33,31 @@ models:
           - not_null
           - accepted_values:
               values: [ad_valorem, free, specific, compound, unparsed]
+  - name: order_to_delivery
+    description: >
+      The spine: one row per customer order, from the quote to the last courier
+      scan. Joins order intake, the tariff archive and the courier log — and
+      computes true_profit_cad, which the pricing tool cannot, because it does
+      not know about duty.
+    columns:
+      - name: order_ref
+        tests: [unique, not_null]
+      - name: order_state
+        tests:
+          - not_null
+          - accepted_values:
+              values: [delivered, in_flight, needs_attention, returned,
+                       no_scans_yet, quoted_not_shipped, rejected]
+      - name: quantity
+        tests: [not_null]
+  - name: parcels_without_orders
+    description: >
+      Parcels the courier is scanning that no order accounts for. Reconciliation
+      in the uncomfortable direction. Empty is the expected state; a row is a
+      work list, not a build failure.
+    columns:
+      - name: waybill
+        tests: [unique, not_null]
   - name: landed_duty_by_order
     description: >
       Each routing decision from the dispatch planner, priced at the duty rate
