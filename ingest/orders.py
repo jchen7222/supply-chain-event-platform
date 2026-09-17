@@ -128,6 +128,13 @@ def quote(order, pricing, rates):
     if rate is None:
         raise OrderError(f"no exchange rate in force on {on}")
 
+    # Said plainly, because this is the common case for a spreadsheet drop: the
+    # order form records what the customer wants, not what the retailer charges
+    # for it. float(None) would say "must be real number, not NoneType", which
+    # reads like a bug in the pipeline rather than a missing column in the file.
+    if order.get("retail_price_cad") in (None, ""):
+        raise OrderError("no source price supplied — awaiting product lookup")
+
     cad = float(order["retail_price_cad"])
     qty = int(order["quantity"])
     weight = float(order.get("weight_lb") or pricing.default_weight_lb)
@@ -214,27 +221,33 @@ def replay(log, orders, record_time, pricing=None, rates=None):
         try:
             q = quote(o, pricing, rates)
         except (OrderError, TypeError, ValueError) as e:
-            log.append("order_rejected", "order_intake", entity,
-                       {"order_ref": o["order_ref"], "reason": str(e),
-                        "pricing_version": pricing.version},
-                       event_time=o["ordered_at"][:10], record_time=record_time)
-            counts["rejected"] += 1
+            if log.append("order_rejected", "order_intake", entity,
+                          {"order_ref": o["order_ref"], "reason": str(e),
+                           "pricing_version": pricing.version},
+                          event_time=o["ordered_at"][:10],
+                          record_time=record_time):
+                counts["rejected"] += 1
             continue
 
-        log.append("order_quoted", "order_intake", entity,
-                   {"order_ref": o["order_ref"],
-                    "landed_cad": q.landed_cad,
-                    "sell_cny": q.sell_cny,
-                    "total_cny": q.total_cny,
-                    "profit_cad": q.profit_cad,
-                    "capped_by_china_price": q.capped_by_china_price,
-                    "fx_rate": q.fx_rate,
-                    "fx_effective_from": q.fx_effective_from,
-                    "pricing_version": q.pricing_version},
-                   event_time=o["ordered_at"][:10], record_time=record_time)
-        counts["quoted"] += 1
-        if q.loses_money:
-            counts["loss_making"] += 1
+        # Counted only when something was actually appended. The counts this
+        # returns are printed as the receipt for an upload, so a re-drop of an
+        # unchanged file must report zero — "7 quoted" for work that was
+        # recognised as a replay and skipped is a lie told to the one person
+        # who is relying on it.
+        if log.append("order_quoted", "order_intake", entity,
+                      {"order_ref": o["order_ref"],
+                       "landed_cad": q.landed_cad,
+                       "sell_cny": q.sell_cny,
+                       "total_cny": q.total_cny,
+                       "profit_cad": q.profit_cad,
+                       "capped_by_china_price": q.capped_by_china_price,
+                       "fx_rate": q.fx_rate,
+                       "fx_effective_from": q.fx_effective_from,
+                       "pricing_version": q.pricing_version},
+                      event_time=o["ordered_at"][:10], record_time=record_time):
+            counts["quoted"] += 1
+            if q.loses_money:
+                counts["loss_making"] += 1
 
     return counts
 

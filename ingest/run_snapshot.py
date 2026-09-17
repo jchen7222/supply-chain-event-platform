@@ -19,7 +19,8 @@ import os
 
 import duckdb
 
-from . import alfred, decisions, gscpi, hts, imf, movements, openfda, orders
+from . import (alfred, decisions, gscpi, hts, imf, movements, openfda, orders,
+               orders_csv)
 from .envelope import EventLog
 from .landing import land
 from .registry import write_seed
@@ -69,7 +70,16 @@ def main():
                              "decisions", "orders", "tracking"])
     ap.add_argument("--as-of", default=None,
                     help="record_time stamp for this snapshot (default: today UTC)")
+    ap.add_argument("--orders-csv", default=None, metavar="PATH",
+                    help="price a spreadsheet of orders instead of the JSONL "
+                         "fixture (Chinese or English headers, UTF-8 or GB18030)")
+    ap.add_argument("--results", default=None, metavar="PATH",
+                    help="write the priced sheet here (with --orders-csv)")
+    ap.add_argument("--day-first", action="store_true",
+                    help="read ambiguous dates as D/M/Y instead of M/D/Y")
     args = ap.parse_args()
+    if args.results and not args.orders_csv:
+        ap.error("--results needs --orders-csv")
     live = args.live and not args.fixtures
     today = args.as_of or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d")
 
@@ -136,13 +146,45 @@ def main():
         print(f"gscpi: {n} new/changed monthly values (of {len(vals)} in the file)")
 
     if args.source in ("all", "orders"):
-        recs = orders.load_fixture()
+        refusals = []
+        if args.orders_csv:
+            # The spreadsheet path. Every row of the file is accounted for
+            # before anything is priced: rows = accepted + refused, printed, so
+            # the person who uploaded it can see their own row count come back.
+            with open(args.orders_csv, "rb") as f:
+                recs, refusals, meta = orders_csv.parse_csv(
+                    f.read(), day_first=args.day_first)
+            land(os.path.join(DATA, "landing"), "orders_csv",
+                 os.path.basename(args.orders_csv),
+                 open(args.orders_csv, "rb").read(), today)
+            print(f"orders: {os.path.basename(args.orders_csv)} "
+                  f"[{meta['encoding']}, '{meta['delimiter']}'] "
+                  f"{meta['rows']} rows -> {meta['accepted']} accepted, "
+                  f"{meta['refused']} refused")
+            if not meta["has_price_column"]:
+                print("        no price column in this export: every order is "
+                      "recorded as placed and left unpriced")
+            if meta["unmapped_columns"]:
+                print(f"        columns ignored: {meta['unmapped_columns']}")
+            for d in meta["duplicate_refs"]:
+                print(f"        DUPLICATE order_ref {d['order_ref']} x{d['count']} "
+                      f"{d['customers']} — the later row amends the earlier one")
+            for r in refusals:
+                print(f"        refused line {r['line']}: {r['reason']}")
+        else:
+            recs = orders.load_fixture()
         c = orders.replay(log, recs, record_time=today)
         print(f"orders: {c['placed']} placed, {c['quoted']} quoted, "
               f"{c['rejected']} rejected"
               + (f", {c['loss_making']} LOSS-MAKING" if c['loss_making'] else ""))
+        if args.orders_csv and not any(c[k] for k in ("placed", "quoted", "rejected")):
+            print("        nothing new: this file has been priced already, and "
+                  "re-reading it appends nothing")
         for g in orders.unquotable(recs):
             print(f"        {g['order_ref']} ({g['customer']}): {g['reason']}")
+        if args.results:
+            rows = orders_csv.write_results(args.results, recs, refusals)
+            print(f"        priced sheet -> {args.results} ({len(rows)} rows)")
 
     if args.source in ("all", "tracking"):
         # The AWS lane, run in process against moto-mocked AWS — the same

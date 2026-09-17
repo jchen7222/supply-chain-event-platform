@@ -22,6 +22,15 @@ COLUMNS = ["seq", "event_id", "event_type", "source", "entity_id",
            "corrective_event_ids"]
 
 
+class EventLogCorrupt(ValueError):
+    """A persisted log could not be read as a log.
+
+    This exists because the log is no longer only a local file. It is carried
+    between runs over the network, so "the last line was cut off halfway" is a
+    thing that can happen to it, and the one response that does not make it
+    worse is to stop and say which line."""
+
+
 def _hash(payload: dict) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
 
@@ -31,36 +40,72 @@ class EventLog:
 
     def __init__(self):
         self.events = []
-        self._latest_hash = {}          # entity_id -> payload_hash of latest event
+        # (event_type, entity_id) -> payload_hash of the latest such event.
+        #
+        # Keyed on the PAIR, not on entity_id alone. For an entity that only
+        # ever carries one kind of event — a duty rate, an ALFRED vintage — the
+        # two are equivalent. For an entity with a lifecycle they are not:
+        # ORDER:A1001 carries order_placed and then order_quoted, so once the
+        # quote lands the entity's "latest hash" is the quote's, a replayed
+        # order_placed no longer matches it, and the placement appends a second
+        # time. That is not hypothetical — it is what happens when somebody
+        # uploads the same spreadsheet twice, which is the normal way people
+        # use an upload box.
+        self._latest_hash = {}
         self._seen = set()              # exact replay keys: (type, entity, et, rt, hash)
 
     @classmethod
     def from_jsonl(cls, path):
+        """Reload the log. A line that is not a well-formed event REFUSES the
+        whole load, naming the line.
+
+        Two reasons it is a refusal and not a skip. First, skipping a line in an
+        append-only ledger is data loss dressed as resilience: the events after
+        it would be replayed against a state that never existed. Second, the
+        way this actually breaks is a write that was cut off mid-line — so the
+        damaged line is the newest one, and carrying on would quietly re-append
+        everything that was in it. Naming the line number means somebody can
+        look at the file and decide, which is the only safe thing to do with a
+        record of what was promised to a customer."""
         import os
         log = cls()
-        if os.path.exists(path):
-            with open(path) as f:
-                for line in f:
+        if not os.path.exists(path):
+            return log
+        with open(path) as f:
+            for n, line in enumerate(f, start=1):
+                if not line.strip():
+                    continue
+                try:
                     ev = json.loads(line)
-                    log.events.append(ev)
-                    if not ev["is_error_declaration"]:
-                        log._latest_hash[ev["entity_id"]] = ev["payload_hash"]
-                        log._seen.add((ev["event_type"], ev["entity_id"],
-                                       ev["event_time"], ev["record_time"],
-                                       ev["payload_hash"]))
+                except json.JSONDecodeError as e:
+                    raise EventLogCorrupt(
+                        f"{path}: line {n} is not JSON ({e}). The log has "
+                        f"{n - 1} good events before it; a truncated last line "
+                        f"is the usual cause.") from e
+                missing = [c for c in COLUMNS if c not in ev]
+                if missing:
+                    raise EventLogCorrupt(
+                        f"{path}: line {n} is not an event — missing {missing}")
+                log.events.append(ev)
+                if not ev["is_error_declaration"]:
+                    log._latest_hash[(ev["event_type"], ev["entity_id"])] = \
+                        ev["payload_hash"]
+                    log._seen.add((ev["event_type"], ev["entity_id"],
+                                   ev["event_time"], ev["record_time"],
+                                   ev["payload_hash"]))
         return log
 
     def append(self, event_type, source, entity_id, payload,
                event_time, record_time, event_id=None):
-        """Append one event. Idempotent by natural key: if the entity's latest
-        payload hash already equals this payload's hash, the observation is
-        unchanged and nothing is appended (returns None). Replaying the same
+        """Append one event. Idempotent by natural key: if the latest event of
+        this type on this entity already has this payload hash, the observation
+        is unchanged and nothing is appended (returns None). Replaying the same
         fixtures is therefore a no-op — a test, not a hope."""
         h = _hash(payload)
         key = (event_type, entity_id, event_time, record_time, h)
         if key in self._seen:                       # exact replay: no-op
             return None
-        if self._latest_hash.get(entity_id) == h:   # unchanged observation: no-op
+        if self._latest_hash.get((event_type, entity_id)) == h:   # unchanged: no-op
             # Record it as seen even though nothing was appended. Otherwise a
             # later full replay re-emits this observation once the entity's
             # latest hash has moved on: A -> A -> B replayed twice would append
@@ -79,7 +124,7 @@ class EventLog:
             "corrective_event_ids": json.dumps([]),
         }
         self.events.append(ev)
-        self._latest_hash[entity_id] = h
+        self._latest_hash[(event_type, entity_id)] = h
         self._seen.add(key)
         return ev["event_id"]
 
