@@ -19,7 +19,7 @@ import os
 
 import duckdb
 
-from . import alfred, gscpi, hts, imf, movements, openfda
+from . import alfred, decisions, gscpi, hts, imf, movements, openfda
 from .envelope import EventLog
 from .landing import land
 from .registry import write_seed
@@ -50,7 +50,8 @@ def main():
     ap.add_argument("--live", action="store_true")
     ap.add_argument("--fixtures", action="store_true")
     ap.add_argument("--source", default="all",
-                    choices=["all", "alfred", "fda", "hts", "imf", "gscpi", "pharma"])
+                    choices=["all", "alfred", "fda", "hts", "imf", "gscpi", "pharma",
+                             "decisions"])
     ap.add_argument("--as-of", default=None,
                     help="record_time stamp for this snapshot (default: today UTC)")
     args = ap.parse_args()
@@ -118,6 +119,22 @@ def main():
         n, vals = gscpi.snapshot(log, today, raw, prior_values=state.get("gscpi"))
         state["gscpi"] = vals
         print(f"gscpi: {n} new/changed monthly values (of {len(vals)} in the file)")
+
+    if args.source in ("all", "decisions"):
+        # The seam. dispatch-planner writes this file; we read it as a source.
+        # Live mode has no endpoint to call — the planner is a peer system, not
+        # an API — so the same file is read either way and we say so.
+        path = os.path.join(FIX, "dispatch_decisions_sample.jsonl")
+        recs = decisions.parse(open(path, "rb").read())
+        land(os.path.join(DATA, "landing"), "dispatch_planner",
+             "dispatch_decisions.jsonl", open(path, "rb").read(), today)
+        n = decisions.replay(log, recs, record_time=today)
+        gaps = decisions.unpriceable(recs)
+        print(f"decisions: {n} routing decisions ingested from the planner "
+              f"({len(recs)} in file, {len(gaps)} with no tariff heading)")
+        for g in gaps:
+            print(f"           {g['order_id']}: {g['why']} "
+                  f"({g['commodity_class']}, rule {g['matched_rule']})")
 
     if args.source in ("all", "pharma"):
         recall = movements.pick_recall(os.path.join(FIX, "openfda_enforcement.json"))

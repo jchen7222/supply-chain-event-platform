@@ -13,7 +13,8 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: [alfred, openfda, imf_imts, gscpi, pharma_synthetic, usitc_hts]
+              values: [alfred, openfda, imf_imts, gscpi, pharma_synthetic, usitc_hts,
+                       dispatch_planner]
   - name: current_state
     columns:
       - name: entity_id
@@ -32,6 +33,24 @@ models:
           - not_null
           - accepted_values:
               values: [ad_valorem, free, specific, compound, unparsed]
+  - name: landed_duty_by_order
+    description: >
+      Each routing decision from the dispatch planner, priced at the duty rate
+      in force on that order's own ship date. The join is per row, not per
+      build — a September shipment and a June shipment get different rates.
+      Neither repository can produce this table alone.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: pricing_status
+        tests:
+          - not_null
+          - accepted_values:
+              values: [priceable, no_heading, no_rate_on_ship_date, not_ad_valorem]
+      - name: rule_set_version
+        tests: [not_null]
+      - name: matched_rule
+        tests: [not_null]
   - name: duty_rate_as_of
     description: "The duty schedule as it stood on `as_of` — what a filer would have used that day."
     columns:

@@ -23,6 +23,13 @@ REGISTRY = [
      "event_type": "duty_rate_observed",
      "natural_key": "hts_code", "cadence": "on_revision",
      "has_native_history": True},
+    # The loop-closing lane: not an observation of the world, but a decision
+    # made by another system, ingested so it is subject to the same fold and
+    # the same audit as everything else. Contract: ingest/decisions.py.
+    {"source": "dispatch_planner", "lane": "decision_ingest",
+     "event_type": "routing_decided",
+     "natural_key": "order_id", "cadence": "per_plan",
+     "has_native_history": False},
     {"source": "gscpi",    "lane": "snapshot_hash_diff",
      "event_type": "index_value_observed",
      "natural_key": "series:observation_date", "cadence": "monthly",
