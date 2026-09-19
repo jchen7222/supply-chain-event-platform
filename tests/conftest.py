@@ -49,13 +49,13 @@ def built(workspace):
 
     r = subprocess.run([sys.executable, "-m", "ingest.run_snapshot",
                         "--fixtures", "--as-of", "2026-08-01"],
-                       cwd=ROOT, capture_output=True, text=True, env=env)
+                       cwd=ROOT, capture_output=True, text=True, encoding="utf-8", env=env)
     assert r.returncode == 0, (r.stderr or r.stdout)[-2000:]
 
     def dbt(*extra):
         return subprocess.run(
             ["dbt", "build", "--profiles-dir", "profiles", *extra],
-            cwd=os.path.join(ROOT, "dbt"), capture_output=True, text=True, env=env)
+            cwd=os.path.join(ROOT, "dbt"), capture_output=True, text=True, encoding="utf-8", env=env)
 
     d = dbt()
     assert d.returncode == 0, d.stdout[-2000:]

@@ -16,6 +16,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import sys
 
 import duckdb
 
@@ -24,6 +25,18 @@ from . import (alfred, decisions, gscpi, hts, imf, movements, openfda, orders,
 from .envelope import EventLog
 from .landing import land
 from .registry import write_seed
+
+# Customer names in this data are Chinese, and Windows still defaults stdout to
+# a legacy code page (cp1252), which cannot encode them — so `print` raised
+# UnicodeEncodeError, the process exited 1, and every test depending on the
+# session fixture errored out. CI never caught it because CI is Linux, where
+# the default is already UTF-8. Reconfigure both streams at import, so any
+# entry point into this package is safe on any platform.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):   # not a TextIOWrapper, or already closed
+        pass
 
 DATA = (os.environ.get("MANIFEST_DATA")
         or os.path.join(os.path.dirname(__file__), "..", "data"))
